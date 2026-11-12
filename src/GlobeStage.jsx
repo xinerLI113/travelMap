@@ -273,7 +273,7 @@ function ensureRevealMaterial() {
 
 function setMotionQuality(viewer, moving) {
   if (!viewer || viewer.isDestroyed()) return;
-  viewer.scene.globe.maximumScreenSpaceError = moving ? 1.5 : 1;
+  viewer.scene.globe.maximumScreenSpaceError = moving ? 1 : 0.75;
 }
 
 function createViewer(root) {
@@ -383,16 +383,17 @@ function createViewer(root) {
   night.contrast = 1.32;
   night.saturation = 0.5;
   night.gamma = 1;
+  night.colorToAlpha = Cesium.Color.BLACK;
+  night.colorToAlphaThreshold = 0;
   viewer.scene.preRender.addEventListener(() => {
     if (viewer.isDestroyed()) return;
     const height = viewer.camera.positionCartographic?.height ?? 20_000_000;
-    // Reveal the finer satellite detail at regional zooms. Keep the full
-    // night layer at globe scale so the polar imagery stays continuous.
+    // At close range, remove the night image's dark background so detailed
+    // satellite imagery shows through. City lights retain full opacity.
     const fade = Cesium.Math.clamp((height - 300_000) / 3_700_000, 0, 1);
-    const lights = fade * fade * (3 - 2 * fade);
-    night.show = lights > 0;
-    night.alpha = lights;
-    if (layer) layer.nightAlpha = 0.72 + (1 - lights) * 0.22;
+    const overview = fade * fade * (3 - 2 * fade);
+    night.colorToAlphaThreshold = (1 - overview) * 0.12;
+    if (layer) layer.nightAlpha = 0.72 + (1 - overview) * 0.22;
   });
   ensureRevealMaterial();
   viewer.camera.setView({
