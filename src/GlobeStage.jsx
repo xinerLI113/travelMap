@@ -175,7 +175,6 @@ const GlobeStage = forwardRef(function GlobeStage({ onReady, onPick, onStatus },
             paintFilm(context, viewer.scene.canvas, canvas.width, canvas.height, {
               ...play.hud,
               recording: true,
-              streetMap: streetMapOpacity(viewer.camera.positionCartographic) > 0,
             });
           } catch (error) {
             const recorder = play.recorder;
@@ -289,7 +288,15 @@ function featherPolarImagery(provider) {
       canvas.width = source.width;
       canvas.height = source.height;
       const context = canvas.getContext('2d');
+      // Cesium decodes ImageBitmap tiles with Y already flipped. Restore
+      // their orientation before drawing into a canvas that WebGL will flip.
+      context.save();
+      if (source instanceof ImageBitmap) {
+        context.translate(0, canvas.height);
+        context.scale(1, -1);
+      }
       context.drawImage(source, 0, 0);
+      context.restore();
       const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
       const project = (latitude) => Math.log(Math.tan(Math.PI / 4 + latitude / 2));
       const north = project(rectangle.north);
@@ -306,36 +313,6 @@ function featherPolarImagery(provider) {
         }
       }
       context.putImageData(pixels, 0, 0);
-      return canvas;
-    });
-  };
-  return provider;
-}
-
-function streetMapOpacity(position) {
-  const zoom = Cesium.Math.clamp((220_000 - position.height) / 160_000, 0, 1);
-  const latitude = Math.abs(Cesium.Math.toDegrees(position.latitude));
-  const coverage = Cesium.Math.clamp((80 - latitude) / 4, 0, 1);
-  return zoom * zoom * (3 - 2 * zoom) * coverage;
-}
-
-function createDarkStreetProvider() {
-  const provider = new Cesium.UrlTemplateImageryProvider({
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    maximumLevel: 19,
-    credit: new Cesium.Credit('<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>', true),
-    enablePickFeatures: false,
-  });
-  const requestImage = provider.requestImage.bind(provider);
-  provider.requestImage = (x, y, level, request) => {
-    const image = requestImage(x, y, level, request);
-    return image?.then((tile) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = tile.width;
-      canvas.height = tile.height;
-      const context = canvas.getContext('2d');
-      context.filter = 'invert(90%) hue-rotate(180deg) saturate(55%)';
-      context.drawImage(tile, 0, 0);
       return canvas;
     });
   };
@@ -464,13 +441,14 @@ function createViewer(root) {
   // Overview uses the cached full globe; only request remote night detail
   // when the camera is close enough to display that extra resolution.
   night.show = false;
-  const streets = new Cesium.ImageryLayer(createDarkStreetProvider(), { show: false });
-  viewer.imageryLayers.add(streets);
   viewer.scene.preRender.addEventListener(() => {
-    const position = viewer.camera.positionCartographic;
-    streets.alpha = streetMapOpacity(position);
-    streets.show = streets.alpha > 0;
-    night.show = position.height < 3_000_000 && streets.alpha < 1;
+    const { height } = viewer.camera.positionCartographic;
+    const fade = Cesium.Math.clamp((height - 280_000) / 1_320_000, 0, 1);
+    const lights = fade * fade * (3 - 2 * fade);
+    nightOverview.alpha = lights;
+    night.alpha = lights;
+    night.show = lights > 0 && height < 3_000_000;
+    layer.nightAlpha = 0.72 + (1 - lights) * 0.22;
   });
   ensureRevealMaterial();
   viewer.camera.setView({
