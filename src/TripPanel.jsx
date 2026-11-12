@@ -31,6 +31,8 @@ export default function TripPanel({
   presets,
   trips,
   onOpenTrip,
+  onDownloadTrip,
+  onImportTrip,
   onPlay,
   onExport,
   onStop,
@@ -46,6 +48,7 @@ export default function TripPanel({
       回家 · {home.name} <kbd>H</kbd>
     </button>
   );
+  const tripFile = useRef(null);
 
   return (
     <aside className="panel">
@@ -59,6 +62,21 @@ export default function TripPanel({
             placeholder="给这段旅程起个名字"
           />
         </label>
+
+        <div className="presets">
+          <button type="button" onClick={onDownloadTrip} disabled={!stops.length}>下载行程</button>
+          <button type="button" onClick={() => tripFile.current.click()} disabled={playing}>导入行程</button>
+          <input
+            ref={tripFile}
+            hidden
+            type="file"
+            accept=".json,application/json"
+            onChange={(event) => {
+              onImportTrip(event.target.files[0]);
+              event.target.value = '';
+            }}
+          />
+        </div>
 
         <div className="section-label">预设</div>
         <div className="presets">

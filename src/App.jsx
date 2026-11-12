@@ -1,19 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import GlobeStage from './GlobeStage.jsx';
 import TripPanel from './TripPanel.jsx';
 import { formatHours, formatKm } from './lib/format.js';
 import { haversine } from './lib/geo.js';
-import { readCurrentTrip, readHome, readTrips, saveCurrentTrip, saveHome, saveTrip } from './lib/history.js';
+import { parseTrip, readCurrentTrip, readHome, readTrips, saveCurrentTrip, saveHome, saveTrip } from './lib/history.js';
 import { PRESETS, reversePlace } from './lib/places.js';
 import { downloadBlob, filmName } from './lib/record.js';
 import { buildRoute, cinematicSeconds, defaultMode, normalizeModes } from './lib/timeline.js';
 
 const starter = { ...PRESETS[0], aspect: 'landscape' };
 
+async function loadGlobe() {
+  if (import.meta.env.PROD) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `${import.meta.env.BASE_URL}cesium/Cesium.js`;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('地球组件加载失败，请刷新重试'));
+      document.head.append(script);
+    });
+  }
+  return (await import('./GlobeStage.jsx')).default;
+}
+
 export default function App() {
   const globeRef = useRef(null);
   const [initialTrip] = useState(() => readCurrentTrip() ?? starter);
   const [ready, setReady] = useState(false);
+  const [GlobeStage, setGlobeStage] = useState(null);
   const [title, setTitle] = useState(initialTrip.title);
   const [stops, setStops] = useState(initialTrip.stops);
   const [modes, setModes] = useState(initialTrip.modes);
@@ -48,6 +61,16 @@ export default function App() {
   const route = useMemo(() => buildRoute(stops, modes), [stops, modes]);
   const seconds = useMemo(() => cinematicSeconds(stops, modes), [stops, modes]);
   const routeView = useMemo(() => ({ ...route, total: seconds }), [route, seconds]);
+
+  useEffect(() => {
+    let active = true;
+    loadGlobe().then((Stage) => {
+      if (active) setGlobeStage(() => Stage);
+    }).catch((error) => {
+      if (active) setBootError(error.message || '地球组件加载失败，请刷新重试');
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     try {
@@ -272,6 +295,22 @@ export default function App() {
     setStatus(`已打开 ${trip.title}`);
   }
 
+  function downloadTrip() {
+    const json = JSON.stringify({ title, stops, modes, aspect });
+    downloadBlob(new Blob([json], { type: 'application/json' }), 'travel-map-trip.json');
+  }
+
+  async function importTrip(file) {
+    if (!file) return;
+    try {
+      const trip = parseTrip(await file.text());
+      if (!trip) throw new Error('Invalid trip file');
+      openTrip({ ...trip, modes: normalizeModes(trip.stops, trip.modes) });
+    } catch {
+      setStatus('无法导入，请选择从旅迹导出的行程文件');
+    }
+  }
+
   function clearAll() {
     haltIfPlaying();
     setStops([]);
@@ -315,12 +354,12 @@ export default function App() {
       <main>
         <section className={`stage-wrap ${aspect}`}>
           <div className={`stage-frame ${aspect}`}>
-            <GlobeStage
+            {GlobeStage && <GlobeStage
               ref={globeRef}
               onReady={() => setReady(true)}
               onPick={onPick}
               onStatus={handleStatus}
-            />
+            />}
             <div className="vignette" />
             <FilmHud hud={shown} showProgress={playing || finished} />
             {!ready && !bootError && <div className="loading-veil">正在展开地球…</div>}
@@ -351,6 +390,8 @@ export default function App() {
           presets={PRESETS}
           trips={trips}
           onOpenTrip={openTrip}
+          onDownloadTrip={downloadTrip}
+          onImportTrip={importTrip}
           onPlay={() => startPlayback(false)}
           onExport={() => startPlayback(true)}
           onStop={stopPlayback}

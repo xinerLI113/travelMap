@@ -21,16 +21,20 @@ export function saveHome(place) {
 
 export function readCurrentTrip() {
   try {
-    const trip = JSON.parse(localStorage.getItem(CURRENT_TRIP_KEY) ?? 'null');
-    if (
-      trip && typeof trip.title === 'string' &&
-      (trip.aspect === 'landscape' || trip.aspect === 'portrait') &&
-      Array.isArray(trip.modes) && Array.isArray(trip.stops) &&
-      trip.stops.every(isPlace)
-    ) return trip;
+    return parseTrip(localStorage.getItem(CURRENT_TRIP_KEY) ?? 'null');
   } catch {
     return null;
   }
+}
+
+export function parseTrip(json) {
+  const trip = JSON.parse(json);
+  if (
+    trip && typeof trip.title === 'string' &&
+    (trip.aspect === 'landscape' || trip.aspect === 'portrait') &&
+    Array.isArray(trip.modes) && Array.isArray(trip.stops) &&
+    trip.stops.every(isPlace)
+  ) return trip;
   return null;
 }
 

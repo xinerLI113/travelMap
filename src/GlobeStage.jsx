@@ -51,7 +51,7 @@ const GlobeStage = forwardRef(function GlobeStage({ onReady, onPick, onStatus },
       const previousScale = viewer.resolutionScale || 1;
       setMotionQuality(viewer, true);
       const pixelRatio = window.devicePixelRatio || 1;
-      const playbackRatio = options.record ? 2 : 1.8;
+      const playbackRatio = 2;
       viewer.resolutionScale = Math.min(previousScale, playbackRatio / pixelRatio);
       viewer.resize();
       playRef.current = {
@@ -344,7 +344,7 @@ function createViewer(root) {
   viewer.clock.clockStep = Cesium.ClockStep.SYSTEM_CLOCK;
   viewer.useBrowserRecommendedResolution = false;
   const displayRatio = window.devicePixelRatio || 1;
-  viewer.resolutionScale = Math.min(2, Math.max(displayRatio, 2) / displayRatio);
+  viewer.resolutionScale = Math.min(2.25, Math.max(displayRatio, 2.25) / displayRatio);
   setMotionQuality(viewer, false);
   viewer.scene.globe.loadingDescendantLimit = 64;
   viewer.scene.globe.tileCacheSize = 2000;
@@ -386,7 +386,11 @@ function createViewer(root) {
   viewer.scene.preRender.addEventListener(() => {
     if (viewer.isDestroyed()) return;
     const height = viewer.camera.positionCartographic?.height ?? 20_000_000;
-    const lights = Cesium.Math.clamp((height - 280_000) / (1_600_000 - 280_000), 0, 1);
+    // Reveal the finer satellite detail at regional zooms. Keep the full
+    // night layer at globe scale so the polar imagery stays continuous.
+    const fade = Cesium.Math.clamp((height - 300_000) / 3_700_000, 0, 1);
+    const lights = fade * fade * (3 - 2 * fade);
+    night.show = lights > 0;
     night.alpha = lights;
     if (layer) layer.nightAlpha = 0.72 + (1 - lights) * 0.22;
   });
