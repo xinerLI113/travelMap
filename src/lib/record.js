@@ -115,4 +115,7 @@ export function paintFilm(ctx, source, width, height, hud) {
   ctx.font = `400 ${Math.max(13, Math.round(Math.min(width, height) * 0.02))}px "Microsoft YaHei", sans-serif`;
   ctx.fillStyle = 'rgba(246,239,226,0.66)';
   ctx.fillText('影像 © Esri, Maxar, Earthstar Geographics', pad, pad + Math.round(Math.min(width, height) * 0.05));
+  if (hud.streetMap) {
+    ctx.fillText('© OpenStreetMap contributors · openstreetmap.org/copyright', pad, pad + Math.round(Math.min(width, height) * 0.075));
+  }
 }

@@ -175,6 +175,7 @@ const GlobeStage = forwardRef(function GlobeStage({ onReady, onPick, onStatus },
             paintFilm(context, viewer.scene.canvas, canvas.width, canvas.height, {
               ...play.hud,
               recording: true,
+              streetMap: streetMapOpacity(viewer.camera.positionCartographic) > 0,
             });
           } catch (error) {
             const recorder = play.recorder;
@@ -311,6 +312,36 @@ function featherPolarImagery(provider) {
   return provider;
 }
 
+function streetMapOpacity(position) {
+  const zoom = Cesium.Math.clamp((220_000 - position.height) / 160_000, 0, 1);
+  const latitude = Math.abs(Cesium.Math.toDegrees(position.latitude));
+  const coverage = Cesium.Math.clamp((80 - latitude) / 4, 0, 1);
+  return zoom * zoom * (3 - 2 * zoom) * coverage;
+}
+
+function createDarkStreetProvider() {
+  const provider = new Cesium.UrlTemplateImageryProvider({
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    maximumLevel: 19,
+    credit: new Cesium.Credit('<a href="https://www.openstreetmap.org/copyright">© OpenStreetMap contributors</a>', true),
+    enablePickFeatures: false,
+  });
+  const requestImage = provider.requestImage.bind(provider);
+  provider.requestImage = (x, y, level, request) => {
+    const image = requestImage(x, y, level, request);
+    return image?.then((tile) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = tile.width;
+      canvas.height = tile.height;
+      const context = canvas.getContext('2d');
+      context.filter = 'invert(90%) hue-rotate(180deg) saturate(55%)';
+      context.drawImage(tile, 0, 0);
+      return canvas;
+    });
+  };
+  return provider;
+}
+
 function createViewer(root) {
   // A Mercator base layer stretches its last row of pixels over the poles.
   // Keep a full-coverage geographic layer underneath the detailed imagery.
@@ -433,8 +464,13 @@ function createViewer(root) {
   // Overview uses the cached full globe; only request remote night detail
   // when the camera is close enough to display that extra resolution.
   night.show = false;
+  const streets = new Cesium.ImageryLayer(createDarkStreetProvider(), { show: false });
+  viewer.imageryLayers.add(streets);
   viewer.scene.preRender.addEventListener(() => {
-    night.show = viewer.camera.positionCartographic.height < 3_000_000;
+    const position = viewer.camera.positionCartographic;
+    streets.alpha = streetMapOpacity(position);
+    streets.show = streets.alpha > 0;
+    night.show = position.height < 3_000_000 && streets.alpha < 1;
   });
   ensureRevealMaterial();
   viewer.camera.setView({
