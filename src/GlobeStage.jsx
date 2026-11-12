@@ -417,6 +417,25 @@ function createViewer(root) {
       credit: 'NASA Earth Observatory / NOAA NGDC',
     }),
   );
+  // Keep the lightweight overview on the first terrain tiles. Refined
+  // terrain requests the visible sectors of the native-resolution image.
+  const nightHD = new Cesium.ImageryLayer(
+    new Cesium.UrlTemplateImageryProvider({
+      url: `${import.meta.env.BASE_URL}maps/night-hd/{x}-{y}.jpg`,
+      tilingScheme: new Cesium.GeographicTilingScheme({
+        numberOfLevelZeroTilesX: 4,
+        numberOfLevelZeroTilesY: 2,
+      }),
+      tileWidth: 3375,
+      tileHeight: 3375,
+      maximumLevel: 0,
+      hasAlphaChannel: false,
+      credit: 'NASA Earth Observatory / NOAA NGDC',
+      enablePickFeatures: false,
+    }),
+    { minimumTerrainLevel: 2 },
+  );
+  viewer.imageryLayers.add(nightHD);
   const night = viewer.imageryLayers.addImageryProvider(
     new Cesium.WebMapServiceImageryProvider({
       // Geographic WMS covers both poles; Mercator stops at 85.05 degrees
@@ -430,7 +449,7 @@ function createViewer(root) {
       enablePickFeatures: false,
     }),
   );
-  for (const nightLayer of [nightOverview, night]) {
+  for (const nightLayer of [nightOverview, nightHD, night]) {
     nightLayer.dayAlpha = 0;
     nightLayer.nightAlpha = 1;
     nightLayer.brightness = 1.28;
@@ -446,6 +465,8 @@ function createViewer(root) {
     const fade = Cesium.Math.clamp((height - 280_000) / 1_320_000, 0, 1);
     const lights = fade * fade * (3 - 2 * fade);
     nightOverview.alpha = lights;
+    nightHD.alpha = lights;
+    nightHD.show = lights > 0;
     night.alpha = lights;
     night.show = lights > 0 && height < 3_000_000;
     layer.nightAlpha = 0.72 + (1 - lights) * 0.22;

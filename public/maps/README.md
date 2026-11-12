@@ -9,3 +9,8 @@ Catalog: https://science.nasa.gov/earth/earth-observatory/earth-at-night/maps/
 
 The cached image provides continuous global coverage while finer NASA GIBS
 imagery loads. It is a historical composite, not a live satellite image.
+
+night-hd/ contains the same 2012 composite at its 13500 × 6750 resolution,
+split into a 4 × 2 grid of 3375 × 3375 JPEGs, west to east and north to south.
+
+Source: https://assets.science.nasa.gov/content/dam/science/esd/eo/images/imagerecords/79000/79765/dnb_land_ocean_ice.2012.13500x6750.jpg
