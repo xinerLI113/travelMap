@@ -273,7 +273,42 @@ function ensureRevealMaterial() {
 
 function setMotionQuality(viewer, moving) {
   if (!viewer || viewer.isDestroyed()) return;
-  viewer.scene.globe.maximumScreenSpaceError = moving ? 1 : 0.75;
+  viewer.scene.globe.maximumScreenSpaceError = moving ? 1.5 : 1;
+}
+
+function featherPolarImagery(provider) {
+  const requestImage = provider.requestImage.bind(provider);
+  provider.requestImage = (x, y, level, request) => {
+    const rectangle = provider.tilingScheme.tileXYToRectangle(x, y, level);
+    const edge = Cesium.Math.toRadians(78);
+    const image = requestImage(x, y, level, request);
+    if (!image || (rectangle.north < edge && rectangle.south > -edge)) return image;
+    return Promise.resolve(image).then((source) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = source.width;
+      canvas.height = source.height;
+      const context = canvas.getContext('2d');
+      context.drawImage(source, 0, 0);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+      const project = (latitude) => Math.log(Math.tan(Math.PI / 4 + latitude / 2));
+      const north = project(rectangle.north);
+      const south = project(rectangle.south);
+      const limit = provider.tilingScheme.rectangle.north;
+      for (let row = 0; row < canvas.height; row++) {
+        const mercator = north + (south - north) * (row + 0.5) / canvas.height;
+        const latitude = Math.abs(2 * Math.atan(Math.exp(mercator)) - Math.PI / 2);
+        const fade = Cesium.Math.clamp((latitude - edge) / (limit - edge), 0, 1);
+        const alpha = 1 - fade * fade * (3 - 2 * fade);
+        for (let column = 0; column < canvas.width; column++) {
+          const offset = (row * canvas.width + column) * 4 + 3;
+          pixels.data[offset] = Math.round(pixels.data[offset] * alpha);
+        }
+      }
+      context.putImageData(pixels, 0, 0);
+      return canvas;
+    });
+  };
+  return provider;
 }
 
 function createViewer(root) {
@@ -286,12 +321,12 @@ function createViewer(root) {
     credit: 'Natural Earth',
     enablePickFeatures: false,
   });
-  const imagery = new Cesium.UrlTemplateImageryProvider({
+  const imagery = featherPolarImagery(new Cesium.UrlTemplateImageryProvider({
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     maximumLevel: 19,
     credit: 'Esri, Maxar, Earthstar Geographics',
     enablePickFeatures: false,
-  });
+  }));
   const terrainProvider = new Cesium.EllipsoidTerrainProvider();
   const viewer = new Cesium.Viewer(root, {
     animation: false,
@@ -346,7 +381,7 @@ function createViewer(root) {
   const displayRatio = window.devicePixelRatio || 1;
   viewer.resolutionScale = Math.min(2.25, Math.max(displayRatio, 2.25) / displayRatio);
   setMotionQuality(viewer, false);
-  viewer.scene.globe.loadingDescendantLimit = 64;
+  viewer.scene.globe.loadingDescendantLimit = 20;
   viewer.scene.globe.tileCacheSize = 2000;
   if (viewer.scene.postProcessStages.fxaa) viewer.scene.postProcessStages.fxaa.enabled = false;
   const polarLayer = viewer.imageryLayers.get(0);
@@ -364,6 +399,16 @@ function createViewer(root) {
     layer.dayAlpha = 1;
     layer.nightAlpha = 0.72;
   }
+  // A complete same-origin night image stays underneath the remote detail
+  // tiles, so a slow or failed request cannot expose a daytime wedge.
+  const nightOverview = viewer.imageryLayers.addImageryProvider(
+    new Cesium.SingleTileImageryProvider({
+      url: `${import.meta.env.BASE_URL}maps/night-earth.jpg`,
+      tileWidth: 3600,
+      tileHeight: 1800,
+      credit: 'NASA Earth Observatory / NOAA NGDC',
+    }),
+  );
   const night = viewer.imageryLayers.addImageryProvider(
     new Cesium.WebMapServiceImageryProvider({
       // Geographic WMS covers both poles; Mercator stops at 85.05 degrees
@@ -377,23 +422,19 @@ function createViewer(root) {
       enablePickFeatures: false,
     }),
   );
-  night.dayAlpha = 0;
-  night.nightAlpha = 1;
-  night.brightness = 1.28;
-  night.contrast = 1.32;
-  night.saturation = 0.5;
-  night.gamma = 1;
-  night.colorToAlpha = Cesium.Color.BLACK;
-  night.colorToAlphaThreshold = 0;
+  for (const nightLayer of [nightOverview, night]) {
+    nightLayer.dayAlpha = 0;
+    nightLayer.nightAlpha = 1;
+    nightLayer.brightness = 1.28;
+    nightLayer.contrast = 1.32;
+    nightLayer.saturation = 0.5;
+    nightLayer.gamma = 1;
+  }
+  // Overview uses the cached full globe; only request remote night detail
+  // when the camera is close enough to display that extra resolution.
+  night.show = false;
   viewer.scene.preRender.addEventListener(() => {
-    if (viewer.isDestroyed()) return;
-    const height = viewer.camera.positionCartographic?.height ?? 20_000_000;
-    // At close range, remove the night image's dark background so detailed
-    // satellite imagery shows through. City lights retain full opacity.
-    const fade = Cesium.Math.clamp((height - 300_000) / 3_700_000, 0, 1);
-    const overview = fade * fade * (3 - 2 * fade);
-    night.colorToAlphaThreshold = (1 - overview) * 0.12;
-    if (layer) layer.nightAlpha = 0.72 + (1 - overview) * 0.22;
+    night.show = viewer.camera.positionCartographic.height < 3_000_000;
   });
   ensureRevealMaterial();
   viewer.camera.setView({
